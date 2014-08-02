@@ -1,0 +1,4 @@
+synolopy
+========
+
+Synology Python API
