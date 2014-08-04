@@ -6,7 +6,7 @@ from urllib import urlencode
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import RequestException, Timeout
 
-from synolopy.errors import SynologyError
+from synolopy.errors import *
 
 
 BASE_TIMEOUT = 10
@@ -63,22 +63,30 @@ class Service(object):
         return '{url}?{params}'.format(url=url, params=urlencode(params))
 
 
+class CGIConsumerFactory(object):
+    @staticmethod
+    def build(struct):
+        try:
+            # BaseConsumer
+            url = struct['url']
+            login = struct['login']
+            password = struct['password']
+            api = BaseConsumer(url, login, password)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+            # Interfaces
+            for i_name, i_params in struct['interfaces'].iteritems():
+                auth = True
+                if 'authentication' in i_params:
+                    auth = i_params['authentication']
+                cgi = CGI(i_name, auth)
+                # Services
+                for s_name, s_params in i_params['services'].iteritems():
+                    cgi.service(s_name, **s_params)
+                api.register(i_name.lower(), cgi)
+        except KeyError:
+            raise ConsumerFactoryException('Invalid struct declaration')
+        else:
+            return api
 
 
 def _clean_response(func, *args, **kwargs):
