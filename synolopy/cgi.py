@@ -13,6 +13,17 @@ BASE_TIMEOUT = 10
 BASE_VERSION = 1
 
 
+def _validator(func, *args, **kwargs):
+    def inner(*args, **kwargs):
+        obj = args[0]
+        if isinstance(obj, Service):
+            valid = obj.__cgi__.__base__.validator
+            if valid:
+                return valid(func(*args, **kwargs))
+        return func(*args, **kwargs)
+    return inner
+
+
 def url_format(url):
     if not url.endswith('/'):
         return url+'/'
@@ -25,11 +36,15 @@ class BaseConsumer(object):
         self.login = login
         self.password = password
         self.timeout = timeout
+        self.validator = None
 
     def register(self, name, interface):
         assert isinstance(interface, CGI), 'Only accepts CGI objects'
         interface.__base__ = self
         setattr(self, name, interface)
+
+    def set_validator(self, valid):
+        self.validator = valid
 
 
 class CGI(object):
@@ -50,17 +65,22 @@ class Service(object):
         self.params = kwargs
         self.__cgi__ = None
 
-    def url(self):
+    def _base_url(self):
         base = urljoin(self.__cgi__.__base__.url, self.__cgi__.path)
         return urljoin(base, self.interface+'.cgi')
 
-    def get(self, method, **kwargs):
+    def url(self, method, **kwargs):
         params = self.params
         params['method'] = method
         params.update(kwargs)
-        url = self.url()
-
+        url = self._base_url()
         return '{url}?{params}'.format(url=url, params=urlencode(params))
+
+    @_validator
+    def request(self, *args, **kwargs):
+        url = self.url(*args, **kwargs)
+        timeout = self.__cgi__.__base__.timeout
+        return requests.get(url, timeout=timeout)
 
 
 class CGIConsumerFactory(object):
