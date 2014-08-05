@@ -10,6 +10,22 @@ from synolopy.errors import *
 TIMEOUT = 10
 
 
+# ------------------------------------------------------------------------------
+# Tools
+# ------------------------------------------------------------------------------
+
+
+def _url_formatter(url):
+    if not url.endswith('/'):
+        return url+'/'
+    return url
+
+
+# ------------------------------------------------------------------------------
+# Common Gateway Interface URL building.
+# ------------------------------------------------------------------------------
+
+
 def _with_validation(func, *args, **kwargs):
     def inner(*args, **kwargs):
         obj = args[0]
@@ -18,12 +34,6 @@ def _with_validation(func, *args, **kwargs):
             return manager.validate(func(*args, **kwargs))
         return func(*args, **kwargs)
     return inner
-
-
-def _url_formatter(url):
-    if not url.endswith('/'):
-        return url+'/'
-    return url
 
 
 class PathElement(object):
@@ -134,13 +144,21 @@ class CGI(PathElement):
                     'Authentication is required by %s but no session manager '
                     'has been defined' % node.path()
                 )
-            session = manager.sid() or manager.login()
+            session = manager.session(node) or manager.credentials(node)
             return requests.get(url, cookies=session, timeout=TIMEOUT)
         else:
             return requests.get(url, timeout=TIMEOUT)
 
 
+# ------------------------------------------------------------------------------
+# Factory tool
+# ------------------------------------------------------------------------------
+
+
 class CGIFactory(object):
+    """
+    Allows to build a CGI consumer from a python dictionary.
+    """
     @staticmethod
     def build(data):
         base = BaseConsumer(data['URL'])
@@ -162,3 +180,33 @@ class CGIFactory(object):
         cgi_set = data['CGI'] if 'CGI' in data else dict()
         for cgi, content in cgi_set.iteritems():
             CGI(cgi, parent, **content)
+
+
+# ------------------------------------------------------------------------------
+# Factory tool
+# ------------------------------------------------------------------------------
+
+
+class SessionManager(object):
+    def __init__(self, login, password, consumer):
+        self.login = login
+        self.password = password
+        self.api = consumer
+        self._sessions = dict()
+
+    def session(self, node, session=None):
+        if not session:
+            try:
+                return self._sessions[node.path]
+            except KeyError:
+                return None
+        self._sessions[node.path] = session
+
+    def credentials(self, node):
+        raise NotImplementedError
+
+
+class ValidationManager(object):
+    @staticmethod
+    def validate(response):
+        raise NotImplementedError
