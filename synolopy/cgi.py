@@ -1,130 +1,164 @@
-import json
 import requests
 
-from  urlparse import urljoin
+from Queue import Queue
+from urlparse import urljoin
 from urllib import urlencode
-from requests.auth import HTTPBasicAuth
-from requests.exceptions import RequestException, Timeout
 
 from synolopy.errors import *
 
 
-BASE_TIMEOUT = 10
-BASE_VERSION = 1
+TIMEOUT = 10
 
 
-def _validator(func, *args, **kwargs):
+def _with_validation(func, *args, **kwargs):
     def inner(*args, **kwargs):
         obj = args[0]
-        if isinstance(obj, Service):
-            valid = obj.__cgi__.__base__.validator
-            if valid:
-                return valid(func(*args, **kwargs))
+        manager = obj.base().validation_manager
+        if manager:
+            return manager.validate(func(*args, **kwargs))
         return func(*args, **kwargs)
     return inner
 
 
-def url_format(url):
+def _url_formatter(url):
     if not url.endswith('/'):
         return url+'/'
     return url
 
 
-class BaseConsumer(object):
-    def __init__(self, url, login=None, password=None, timeout=BASE_TIMEOUT):
-        self.url = url_format(url)
-        self.login = login
-        self.password = password
-        self.timeout = timeout
-        self.validator = None
+class PathElement(object):
+    """
+    Object representation of any path URL node.
+    """
+    def __init__(self, path, parent, auth=False):
+        self._path = path
+        self._auth = auth
+        self.__parent__ = parent
+        if parent:
+            setattr(parent, path.lower(), self)
 
-    def register(self, name, interface):
-        assert isinstance(interface, CGI), 'Only accepts CGI objects'
-        interface.__base__ = self
-        setattr(self, name, interface)
+    def base(self):
+        """
+        Gives the base element of an URL (starting with `http://`).
+        """
+        return self.__parent__.base()
 
-    def set_validator(self, valid):
-        self.validator = valid
+    def parents(self):
+        """
+        Returns an simple FIFO queue with the ancestors and itself.
+        """
+        q = self.__parent__.parents()
+        q.put(self)
+        return q
+
+    def path(self):
+        """
+        Gives a ready to use path element (ease join).
+        """
+        return _url_formatter(self._path)
+
+    def url(self):
+        """
+        Returns the whole URL from the base to this node.
+        """
+        path = None
+        nodes = self.parents()
+        while not nodes.empty():
+            path = urljoin(path, nodes.get().path())
+        return path
+
+    def auth_required(self):
+        """
+        If any ancestor required an authentication, this node needs it too.
+        """
+        if self._auth:
+            return self._auth, self
+        return self.__parent__.auth_required()
 
 
-class CGI(object):
-    def __init__(self, path, auth=True):
-        self.path = url_format(path)
-        self.auth = auth
-        self.__base__ = None
+class BaseConsumer(PathElement):
+    """
+    Root element for the CGI services tree.
+    """
+    def __init__(self, url):
+        super(BaseConsumer, self).__init__(url, None)
+        self.session_manager = None
+        self.validation_manager = None
 
-    def service(self, name, **kwargs):
-        srv = Service(name, **kwargs)
-        srv.__cgi__ = self
-        setattr(self, name, srv)
+    def parents(self):
+        q = Queue()
+        q.put(self)
+        return q
+
+    def auth_required(self):
+        return self._auth, None
+
+    def base(self):
+        return self
 
 
-class Service(object):
-    def __init__(self, interface, **kwargs):
-        self.interface = interface
+class CGI(PathElement):
+    """
+    Object representation of a CGI, with useful methods to request and valid
+    returned data and
+    """
+    def __init__(self, path, parent, **kwargs):
+        super(CGI, self).__init__(path, parent)
         self.params = kwargs
-        self.__cgi__ = None
 
-    def _base_url(self):
-        base = urljoin(self.__cgi__.__base__.url, self.__cgi__.path)
-        return urljoin(base, self.interface+'.cgi')
+    def path(self):
+        return self._path
 
-    def url(self, method, **kwargs):
+    def url(self, method=None, **kwargs):
+        base = super(CGI, self).url()
+        base = '{path}.cgi'.format(path=base)
+
         params = self.params
-        params['method'] = method
-        params.update(kwargs)
-        url = self._base_url()
-        return '{url}?{params}'.format(url=url, params=urlencode(params))
+        if method:
+            params['method'] = method
+            params.update(kwargs)
 
-    @_validator
-    def request(self, *args, **kwargs):
-        url = self.url(*args, **kwargs)
-        timeout = self.__cgi__.__base__.timeout
-        return requests.get(url, timeout=timeout)
+        if params:
+            return '{url}?{params}'.format(url=base, params=urlencode(params))
+        return base
 
+    @_with_validation
+    def request(self, method, **kwargs):
+        url = self.url(method, **kwargs)
 
-class CGIConsumerFactory(object):
-    @staticmethod
-    def build(struct):
-        try:
-            # BaseConsumer
-            url = struct['url']
-            login = struct['login']
-            password = struct['password']
-            api = BaseConsumer(url, login, password)
-
-            # Interfaces
-            for i_name, i_params in struct['interfaces'].iteritems():
-                auth = True
-                if 'authentication' in i_params:
-                    auth = i_params['authentication']
-                cgi = CGI(i_name, auth)
-                # Services
-                for s_name, s_params in i_params['services'].iteritems():
-                    cgi.service(s_name, **s_params)
-                api.register(i_name.lower(), cgi)
-        except KeyError:
-            raise ConsumerFactoryException('Invalid struct declaration')
+        auth, node = self.auth_required()
+        if auth:
+            manager = self.base().session_manager
+            if not manager:
+                raise CGIException(
+                    'Authentication is required by %s but no session manager '
+                    'has been defined' % node.path()
+                )
+            session = manager.sid() or manager.login()
+            return requests.get(url, cookies=session, timeout=TIMEOUT)
         else:
-            return api
+            return requests.get(url, timeout=TIMEOUT)
 
 
-def _clean_response(func, *args, **kwargs):
-    try:
-        request = func(*args, **kwargs)
-    except RequestException:
-        raise SynologyError('The API request cannot been made')
-    else:
-        status = request.status_code
+class CGIFactory(object):
+    @staticmethod
+    def build(data):
+        base = BaseConsumer(data['URL'])
+        CGIFactory._build_path(data, base)
+        CGIFactory._build_cgi(data, base)
+        return base
 
-        # Check returned status code and raise exception if any
-        if status is not 200:
-            raise SynologyError('Request failed')
+    @staticmethod
+    def _build_path(data, parent):
+        path_set = data['PATH'] if 'PATH' in data else dict()
+        for path, content in path_set.iteritems():
+            auth = content['AUTH'] if 'AUTH' in content else False
+            pe = PathElement(path, parent, auth)
+            CGIFactory._build_path(content, pe)
+            CGIFactory._build_cgi(content, pe)
 
-        # The request is valid, now check if it succeed
-        content = request.json()
-        if not content['success']:
-            raise SynologyError('Error %d' % content['error'])
-
-        # The request is valid, and it succeed
-        return content['data']
+    @staticmethod
+    def _build_cgi(data, parent):
+        cgi_set = data['CGI'] if 'CGI' in data else dict()
+        for cgi, content in cgi_set.iteritems():
+            CGI(cgi, parent, **content)

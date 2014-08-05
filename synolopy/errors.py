@@ -10,9 +10,13 @@ API_ERROR = {
 }
 
 
+class CGIException(Exception):
+    pass
+
+
 class ConsumerFactoryException(Exception):
     pass
 
 
-class SynologyError(Exception):
+class SynologyException(Exception):
     pass

@@ -55,5 +55,5 @@ docs/_build/
 # PyCharm
 atlassian-ide-plugin.xml
 .idea/
-test/main.py
+dev/
 
