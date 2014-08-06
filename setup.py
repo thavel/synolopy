@@ -7,7 +7,7 @@ setup(
     name='synolopy',
     version='0.1.0',
     description='Synology Python API',
-    author='T. Havel',
+    author='thavel',
     packages=find_packages(),
     requires=[
         'requests'

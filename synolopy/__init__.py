@@ -1,1 +1,1 @@
-from .devices import SynologyNasApi
+from .devices import NasApi
