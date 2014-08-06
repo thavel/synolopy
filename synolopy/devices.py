@@ -114,15 +114,15 @@ def _nas_api(url, login, password):
                         'api': 'SYNO.FileStation.CheckPermission',
                         'version': 1
                     },
-                    'file_sharing': {
+                    'api_upload': {
                         'api': 'SYNO.FileStation.Upload',
                         'version': 1
                     },
-                    'Download': {
+                    'file_download': {
                         'api': 'SYNO.FileStation.Download',
                         'version': 1
                     },
-                    'Sharing': {
+                    'file_sharing': {
                         'api': 'SYNO.FileStation.Sharing',
                         'version': 1
                     },
