@@ -52,7 +52,7 @@ To start using the NAS API, you need to import the library:
 ```python
 from synolopy import NasApi
 
-nas = NasApi('http://192.168.0.99:5000', 'admin', 'my_super_strong_password')
+nas = NasApi('http://192.168.0.99:5000/webapi/', 'admin', 'my_super_strong_password')
 ```
 
 Basically, any API request follows this pattern:
