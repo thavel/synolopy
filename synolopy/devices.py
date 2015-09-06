@@ -21,7 +21,8 @@ class _NasValidationManager(ValidationManager):
             else:
                 raise SynologyException('Unknown error from API (%d)' % code)
 
-        return rsp['data']
+        if 'data' in rsp:
+            return rsp['data']
 
 
 class _NasSessionManager(SessionManager):
@@ -155,7 +156,24 @@ def _nas_api(url, login, password):
                         'version': 1
                     }
                 }
-            }
+            },
+            'VideoStation': {
+                'AUTH': True,
+                'CGI': {
+                    'channellist': {
+                        'api': 'SYNO.DTV.Channel',
+                        'version': 1
+                    },
+                    'programlist': {
+                        'api': 'SYNO.DTV.Program',
+                        'version': 1
+                    },
+                    'schedule_recording' : {
+                        'api': 'SYNO.DTV.Schedule',
+                        'version': 1
+                    }
+                },
+            },
         },
         'CGI': {
             'auth': {
