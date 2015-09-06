@@ -7,7 +7,7 @@ Synology is a Python library aimed to help using Synology device's APIs.
 Version
 -------
 
-Current stable version: 0.1.1
+Current stable version: 0.1.2
 
 
 Features
